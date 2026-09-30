@@ -5,3 +5,25 @@
 *.tmp
 *.part
 .lost+found
+# --- final set, from measured upstream sizes (Rackspace, 2026-09-30) --------
+# Kept (~123G on the 154G LV, ~27G headroom):
+#   pool non-debug 114.5G + iso 8.5G (verified current-only, 48 files)
+#   + repos ~0.2G (core/extra/multilib/unstable/testing/staging)
+# Dropped — accepted practice, most public mirrors skip these too:
+#   archive/ 14.2G — frozen museum of ancient ISOs, not part of the set
+#   sources/ 61.9G — source tarballs, optional for mirrors
+#   other/   10.9G — misc extras, optional
+#   images/   6.0G — cloud images, optional (dropped for headroom)
+#   wsl/      0.3G — WSL images, optional (dropped for headroom)
+#   *-debug/ dirs + pool debug packages 124.2G — debuginfod, optional
+# The `*-debug-*.pkg.tar.*` pattern was audited file-by-file against the live
+# upstream: it catches exactly the 124.2G/19,126 debug files and spares legit
+# packages that merely contain "debug" (debugedit, debuginfod, xdebug,
+# python-debugpy, kdebugsettings, ...). Do NOT broaden it to `*debug*`.
+archive/
+sources/
+other/
+images/
+wsl/
+*-debug/
+*-debug-*.pkg.tar.*
