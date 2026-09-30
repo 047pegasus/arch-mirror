@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Arch mirror sync every 4 hours
+
+[Timer]
+OnCalendar=*-*-* 00,04,08,12,16,20:00:00
+Persistent=true
+RandomizedDelaySec=30m
+
+[Install]
+WantedBy=timers.target

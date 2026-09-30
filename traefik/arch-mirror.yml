@@ -1,0 +1,38 @@
+# Arch Linux Mirror - Traefik Dynamic Configuration (OPTIONAL ALTERNATIVE)
+#
+# *** PICK ONE: Docker labels (default) OR this file — NOT BOTH. ***
+#
+# The docker-compose.yml in this project already routes
+# arch.itanishq.space / mirror.itanishq.space via Docker labels, exactly like
+# the octoport control-plane stack does. That is the recommended path and
+# needs no file-provider setup.
+#
+# Use THIS file only if your Traefik has a file provider (e.g.
+# /srv/infrastructure/dynamic/) and you prefer file-based routing. If you
+# enable it, REMOVE the traefik.* labels from docker-compose.yml first, or
+# you will register duplicate routers for the same Host() rule.
+#
+# When enabled, drop this file into your Traefik file-provider directory and
+# `docker exec infrastructure-traefik-1 kill -HUP 1`.
+
+http:
+  routers:
+    arch-mirror:
+      rule: "Host(`arch.itanishq.space`) || Host(`mirror.itanishq.space`)"
+      entryPoints:
+        - web
+      service: arch-mirror-svc
+      middlewares:
+        - arch-mirror-compress
+
+  services:
+    arch-mirror-svc:
+      loadBalancer:
+        servers:
+          # Resolvable because Traefik itself sits on traefik-public.
+          - url: "http://arch-mirror-nginx:80"
+        passHostHeader: true
+
+  middlewares:
+    arch-mirror-compress:
+      compress: {}

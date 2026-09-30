@@ -1,0 +1,11 @@
+FROM golang:1.23-alpine AS builder
+WORKDIR /app
+COPY go.mod exporter.go ./
+# Resolve deps at build time so the repo does not need a committed go.sum.
+RUN go mod tidy && CGO_ENABLED=0 go build -o exporter exporter.go
+
+FROM alpine:latest
+RUN apk add --no-cache ca-certificates wget
+COPY --from=builder /app/exporter /exporter
+EXPOSE 9100
+ENTRYPOINT ["/exporter"]

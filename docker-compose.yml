@@ -1,0 +1,122 @@
+# =============================================================================
+# Arch Linux Official Mirror — production stack for the home server.
+#
+# Copy to:  /srv/apps/arch-mirror/docker-compose.yml
+# Copy .env.example to .env on the server (chmod 600 .env).
+#
+# Conventions shared with every other app on this server (see octoport prod):
+#   - joins the external `traefik-public` network; the global Traefik routes
+#     to it by Host() and reaches it by container name
+#   - NO `ports:` — nothing is published to the host or the LAN. Traffic
+#     arrives through the Cloudflare Tunnel -> Traefik -> here
+#   - TLS terminates at Cloudflare's edge, so routers use the `web` entrypoint
+#   - mem_limit on every container so one service cannot push the box into swap
+#   - healthchecks on long-running services (nginx, exporter)
+#   - logging via the Loki driver with app=arch-mirror labels, matching the
+#     blog-webspace stack (loki-url must resolve from traefik-public)
+# =============================================================================
+
+services:
+  # Nginx to serve static mirror files.
+  nginx:
+    image: nginx:${NGINX_TAG:-alpine}
+    container_name: arch-mirror-nginx
+    restart: unless-stopped
+    expose:
+      - "80"
+    volumes:
+      - /srv/http/archlinux:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./conf.d:/etc/nginx/conf.d:ro
+    networks:
+      - traefik-public
+    mem_limit: 128m
+    stop_grace_period: 30s
+    healthcheck:
+      # nginx:alpine ships busybox wget, so this needs no extra packages.
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    labels:
+      - "traefik.enable=true"
+      # Exact Host() rules always beat the octoport low-priority (priority: 1)
+      # catch-all, so no priority override is needed here.
+      - "traefik.http.routers.arch-mirror.rule=Host(`arch.itanishq.space`) || Host(`mirror.itanishq.space`)"
+      - "traefik.http.routers.arch-mirror.entrypoints=web"
+      - "traefik.http.routers.arch-mirror.service=arch-mirror"
+      - "traefik.http.services.arch-mirror.loadbalancer.server.port=80"
+      # Track nginx:alpine the same way blog-webspace tracks its image.
+      - "com.centurylinklabs.watchtower.enable=true"
+    logging:
+      driver: loki
+      options:
+        loki-url: "http://loki:3100/loki/api/v1/push"
+        loki-external-labels: app=arch-mirror,component=nginx
+
+  # Placeholder only: the real sync runs on the host via
+  # systemd/arch-mirror-sync.service + .timer. This entry exists so
+  # `docker compose config` documents the volume layout in one place.
+  # It is never started by `docker compose up -d`.
+  rsync:
+    image: alpine:latest
+    container_name: arch-mirror-rsync
+    profiles:
+      - sync
+    command: ["sh", "/sync.sh"]
+    volumes:
+      - /srv/http/archlinux:/mirror:rw
+      - ./sync.sh:/sync.sh:ro
+      - ./rsync-exclude.txt:/rsync-exclude.txt:ro
+    networks:
+      - traefik-public
+    mem_limit: 256m
+    labels:
+      # Never auto-restarted by watchtower; systemd owns its lifecycle.
+      - "com.centurylinklabs.watchtower.enable=false"
+    logging:
+      driver: loki
+      options:
+        loki-url: "http://loki:3100/loki/api/v1/push"
+        loki-external-labels: app=arch-mirror,component=rsync
+
+  # Prometheus exporter for mirror metrics (scraped by monitoring-prometheus-1).
+  mirror-exporter:
+    image: ghcr.io/047pegasus/arch-mirror-exporter:${IMAGE_TAG:-latest}
+    container_name: arch-mirror-exporter
+    restart: unless-stopped
+    expose:
+      - "9100"
+    volumes:
+      - /srv/http/archlinux:/mirror:ro
+    environment:
+      - MIRROR_PATH=/mirror
+      - SYNC_LOG_PATH=/var/log/arch-mirror-sync.log
+    networks:
+      - traefik-public
+    mem_limit: 64m
+    stop_grace_period: 10s
+    healthcheck:
+      # Final image installs wget (see Dockerfile.exporter) for this probe.
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:9100/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    labels:
+      - "traefik.enable=false"
+      # Rebuild + push a new :latest and watchtower picks it up, same flow
+      # as ghcr.io/047pegasus/blog-webspace:latest.
+      - "com.centurylinklabs.watchtower.enable=true"
+    logging:
+      driver: loki
+      options:
+        loki-url: "http://loki:3100/loki/api/v1/push"
+        loki-external-labels: app=arch-mirror,component=exporter
+
+networks:
+  # Shared with Traefik; created once with `docker network create traefik-public`.
+  traefik-public:
+    external: true
+    name: traefik-public

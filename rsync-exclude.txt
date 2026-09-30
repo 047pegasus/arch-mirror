@@ -1,0 +1,7 @@
+# Exclude patterns for Arch mirror
+# We want all architectures but can exclude some if needed
+# *i686*          # Uncomment to exclude 32-bit
+# *arm*           # Uncomment to exclude ARM
+*.tmp
+*.part
+.lost+found

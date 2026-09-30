@@ -1,0 +1,23 @@
+[Unit]
+Description=Arch Linux Mirror Sync
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/srv/apps/arch-mirror
+EnvironmentFile=-/srv/apps/arch-mirror/.env
+ExecStart=/srv/apps/arch-mirror/sync.sh
+# Run in container for isolation (optional)
+# ExecStart=/usr/bin/docker run --rm \
+#   -v /srv/http/archlinux:/mirror:rw \
+#   -v /srv/apps/arch-mirror/sync.sh:/sync.sh:ro \
+#   -v /srv/apps/arch-mirror/rsync-exclude.txt:/rsync-exclude.txt:ro \
+#   --env-file /srv/apps/arch-mirror/.env \
+#   alpine:latest /sync.sh
+StandardOutput=journal
+StandardError=journal
+# Resource limits (match docker mem_limit for consistency)
+MemoryMax=256M
+CPUWeight=100

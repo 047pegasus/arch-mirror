@@ -1,0 +1,15 @@
+# Prometheus scrape snippet for the Arch mirror exporter.
+# Merge into the server's prometheus.yml (or managed scrape-config file),
+# then `docker exec monitoring-prometheus-1 kill -HUP 1`.
+#
+# Requires monitoring-prometheus-1 to share the traefik-public network so
+# the `arch-mirror-exporter` Docker DNS name resolves — the same assumption
+# the blog-webspace Loki logging config (http://loki:3100/...) already makes.
+
+scrape_configs:
+  - job_name: 'arch-mirror'
+    static_configs:
+      - targets: ['arch-mirror-exporter:9100']
+    metrics_path: /metrics
+    scrape_interval: 60s
+    scrape_timeout: 10s
