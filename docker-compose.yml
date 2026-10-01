@@ -90,6 +90,11 @@ services:
       - "9100"
     volumes:
       - /srv/http/archlinux:/mirror:ro
+      # The sync log lives on the HOST (written by the systemd timer, not by
+      # any container). Without this bind-mount the exporter parses nothing:
+      # last_sync stays 0 (shows as ~57 years ago) and status stays FAILED.
+      # File must exist before first `up -d` (the timer creates it on first run).
+      - /var/log/arch-mirror-sync.log:/var/log/arch-mirror-sync.log:ro
     environment:
       - MIRROR_PATH=/mirror
       - SYNC_LOG_PATH=/var/log/arch-mirror-sync.log
