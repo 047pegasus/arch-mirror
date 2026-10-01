@@ -1,0 +1,152 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "description": "Prometheus scraping arch-mirror-exporter:9100",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    },
+    {
+      "name": "DS_LOKI",
+      "label": "Loki",
+      "description": "Loki receiving app=arch-mirror container logs",
+      "type": "datasource",
+      "pluginId": "loki",
+      "pluginName": "Loki"
+    }
+  ],
+  "title": "Arch Linux Mirror",
+  "tags": ["arch", "mirror"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5m",
+  "time": { "from": "now-7d", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Sync status",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "FAILED" }, "1": { "text": "OK" } } }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "value": 0, "color": "red" },
+              { "value": 1, "color": "green" }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "center" },
+      "targets": [
+        { "refId": "A", "expr": "arch_mirror_sync_status", "legendFormat": "__auto" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Time since last sync",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "value": 0, "color": "green" },
+              { "value": 21600, "color": "yellow" },
+              { "value": 86400, "color": "red" }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "center" },
+      "targets": [
+        { "refId": "A", "expr": "time() - arch_mirror_last_sync_timestamp", "legendFormat": "__auto" }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Disk used",
+      "type": "gauge",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "value": 0, "color": "green" },
+              { "value": 0.8, "color": "yellow" },
+              { "value": 0.9, "color": "red" }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": { "showThresholdMarkers": true, "showThresholdLabels": true },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "1 - (arch_mirror_disk_usage_bytes{type=\"free\"} / arch_mirror_disk_usage_bytes{type=\"total\"})",
+          "legendFormat": "__auto"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Mirror size by repo",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "decbytes", "custom": { "drawStyle": "line", "fillOpacity": 15 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right" } },
+      "targets": [
+        { "refId": "A", "expr": "arch_mirror_size_bytes", "legendFormat": "{{repo}}" }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Files by repo",
+      "type": "bargauge",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "options": { "displayMode": "gradient", "orientation": "horizontal", "showUnfilled": true },
+      "targets": [
+        { "refId": "A", "expr": "arch_mirror_files_total", "legendFormat": "{{repo}}" }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Mirror logs (nginx + rsync + exporter)",
+      "type": "logs",
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 16 },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "options": { "showLabels": false, "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending" },
+      "targets": [
+        { "refId": "A", "expr": "{app=\"arch-mirror\"}" }
+      ]
+    }
+  ]
+}
