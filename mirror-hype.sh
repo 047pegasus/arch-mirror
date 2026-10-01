@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# hype-version: 2.2-excludes
+# hype-version: 2.3-flock-probe
 # mirror-hype.sh v2 — screenshot-worthy Arch Linux mirror seeding progress.
 # Deployed correctly? `grep hype-version mirror-hype.sh` must print 2.2-excludes.
 #
@@ -21,8 +21,8 @@ LIVE=0
 W=64
 STATE_DIR=/tmp/mirror-hype
 BASELINE_FILE=$STATE_DIR/baseline      # "<epoch>:<used_kb_at_first_run>"
-TOTAL_FILE=$STATE_DIR/upstream-total-v2  # "<epoch>:<exclude-mtime>:<kb>" (7d, re-probes if excludes change)
-PROBE_LOCK=$STATE_DIR/probe.lock
+TOTAL_FILE=$STATE_DIR/upstream-total-v3  # "<epoch>:<excludes-md5>:<kb>" (7d, md5-vintaged)
+PROBE_LOCKFILE=$STATE_DIR/probe.lock   # flock single-flight (not a mkdir flag)
 PROBE_ATTEMPT=$STATE_DIR/probe-attempt # "<epoch>" (1h retry cooldown on failure)
 RATES_FILE=$STATE_DIR/rates            # space-separated MB/s history (last 24)
 FILES_CACHE=$STATE_DIR/files           # "<epoch>:<count>"
@@ -115,50 +115,70 @@ upstream_src() { # where we sync from: sync log (actual) > env > nothing
   return 1
 }
 
+excludes_md5() { # content hash of the exclude file (reDeploys can't fool it)
+  if [[ -f "$EXCLUDE" ]]; then
+    md5sum < "$EXCLUDE" 2>/dev/null | cut -d' ' -f1 || echo "no-excludes-file"
+  else
+    echo "no-excludes-file"
+  fi
+}
+
 launch_probe() {
-  # One-shot background measurement of the REAL upstream total:
-  # `rsync --list-only` streams the file list, awk sums regular-file sizes,
-  # honoring the SAME --exclude-from as sync.sh so junk like Rackspace's
-  # archive/ never inflates the number. Niced/ioniced, cached 7d, 1h cooldown.
-  local src now last=0 lock_tmp exmtime=0
+  # Single-flight (flock), exit-gated, md5-vintaged measurement of the REAL
+  # upstream total, using the SAME --exclude-from as sync.sh.
+  # Concurrent hype runs and --live frames can neither pile up probes nor
+  # poison the cache: only the flock holder measures, only a listing that
+  # exits 0 is cached (killed/failed runs leave nothing behind), and a cache
+  # entry is honored only if its excludes-md5 matches today's exclude file.
+  local src exmd5 now last
   src=$(upstream_src)
   [[ -z "$src" ]] && return 0
+  exmd5=$(excludes_md5)
   now=$(date +%s)
+  last=0
   [[ -f "$PROBE_ATTEMPT" ]] && last=$(cat "$PROBE_ATTEMPT" 2>/dev/null || echo 0)
   (( now - last < 3600 )) && return 0
   echo "$now" > "$PROBE_ATTEMPT" 2>/dev/null || true
-  if ! mkdir "$PROBE_LOCK" 2>/dev/null; then
-    # lock exists: fresh only if a probe process is actually alive,
-    # else it's wreckage from a kill — clear it and proceed
-    if pgrep -f "[r]sync --list-only" >/dev/null 2>&1; then return 0; fi
-    rmdir "$PROBE_LOCK" 2>/dev/null || true
-    mkdir "$PROBE_LOCK" 2>/dev/null || return 0
-  fi
-  local args=()
-  if [[ -f "$EXCLUDE" ]]; then
-    args+=( "--exclude-from=$EXCLUDE" )
-    exmtime=$(stat -c %Y "$EXCLUDE" 2>/dev/null || echo 0)
-  fi
-  lock_tmp="$TOTAL_FILE.tmp"
-  ( nice -n 10 ionice -c3 rsync --list-only -r "${args[@]}" "$src" 2>/dev/null \
-      | awk -v now="$(date +%s)" -v exm="$exmtime" '/^-/{ gsub(/,/,"",$2); s+=$2 }
-          END{ if (s>0) printf "%d:%d:%d", now, exm, s/1024 }' > "$lock_tmp";
-    [[ -s "$lock_tmp" ]] && mv "$lock_tmp" "$TOTAL_FILE";
-    rmdir "$PROBE_LOCK" ) & disown 2>/dev/null || true
+  ( flock -n 9 || exit 0
+    list_tmp=$(mktemp /tmp/hype-list.XXXXXX) || exit 0
+    out_tmp="$TOTAL_FILE.tmp"
+    probe_rc=0
+    probe_args=""
+    if [[ -f "$EXCLUDE" ]]; then
+      probe_args="--exclude-from=$EXCLUDE"
+    fi
+    if command -v timeout >/dev/null 2>&1; then
+      timeout -s KILL 1500 nice -n 10 ionice -c3 \
+        rsync --list-only -r $probe_args "$src" >"$list_tmp" 2>/dev/null || probe_rc=$?
+    else
+      nice -n 10 ionice -c3 \
+        rsync --list-only -r $probe_args "$src" >"$list_tmp" 2>/dev/null || probe_rc=$?
+    fi
+    if (( probe_rc == 0 )); then
+      awk -v now="$(date +%s)" -v exm="$exmd5" \
+        '/^-/{ gsub(/,/,"",$2); s+=$2 }
+         END{ if (s>0) printf "%d:%s:%d", now, exm, s/1024 }' \
+        "$list_tmp" > "$out_tmp" 2>/dev/null || true
+      [[ -s "$out_tmp" ]] && mv "$out_tmp" "$TOTAL_FILE"
+    fi
+    rm -f "$list_tmp" "$out_tmp"
+  ) 9>"$PROBE_LOCKFILE" & disown 2>/dev/null || true
 }
 
 upstream_total_kb() { # prints measured upstream KB; returns 1 if unknown yet
-  local now age=999999999 cached=0 exm_now=0 exm_then=0
+  local now age cached exm_now exm_then
   now=$(date +%s)
-  [[ -f "$EXCLUDE" ]] && exm_now=$(stat -c %Y "$EXCLUDE" 2>/dev/null || echo 0)
+  age=999999999
+  cached=0
+  exm_now=$(excludes_md5)
+  exm_then="none"
   if [[ -f "$TOTAL_FILE" ]]; then
     age=$(( now - $(cut -d: -f1 "$TOTAL_FILE" 2>/dev/null || echo 0) ))
-    exm_then=$(cut -d: -f2 "$TOTAL_FILE" 2>/dev/null || echo 0)
+    exm_then=$(cut -d: -f2 "$TOTAL_FILE" 2>/dev/null || echo "none")
     cached=$(cut -d: -f3 "$TOTAL_FILE" 2>/dev/null || echo 0)
   fi
-  # v1 cache has only 2 fields → f3 empty → 0 → auto re-probe. Exclude edits
-  # change exmtime → stale total discarded. Both migrate silently.
-  if (( age <= 604800 )) && (( cached > 0 )) && (( exm_then == exm_now )); then
+  # Old v1/v2 caches lack a matching md5 field → rejected → silent re-probe.
+  if (( age <= 604800 )) && (( cached > 0 )) && [[ "$exm_then" == "$exm_now" ]]; then
     printf '%s' "$cached"
     return 0
   fi
