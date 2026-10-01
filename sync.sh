@@ -53,6 +53,17 @@ if [ $SYNC_EXIT -eq 0 ]; then
     echo "last_sync: $(date -Iseconds)" > "$MIRROR_ROOT/mirror-status.txt"
     echo "status: success" >> "$MIRROR_ROOT/mirror-status.txt"
     echo "source: $MIRROR_SOURCE" >> "$MIRROR_ROOT/mirror-status.txt"
+elif [ $SYNC_EXIT -eq 24 ]; then
+    # Exit 24 = "some files vanished before they could be transferred".
+    # Normal on a live upstream: Rackspace rotates packages mid-sync, so files
+    # listed at file-list time are gone by transfer time. Everything fetched
+    # is intact; the next run reconciles the churn. Not a failure.
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - Sync completed successfully (exit 24: upstream churn, harmless)" >> "$LOG_FILE"
+    echo "last_sync: $(date -Iseconds)" > "$MIRROR_ROOT/mirror-status.txt"
+    echo "status: success" >> "$MIRROR_ROOT/mirror-status.txt"
+    echo "source: $MIRROR_SOURCE" >> "$MIRROR_ROOT/mirror-status.txt"
+    echo "note: exit 24, some upstream files vanished mid-transfer" >> "$MIRROR_ROOT/mirror-status.txt"
+    SYNC_EXIT=0
 else
     echo "$(date '+%Y-%m-%d %H:%M:%S') - Sync failed with exit code $SYNC_EXIT" >> "$LOG_FILE"
     echo "last_sync: $(date -Iseconds)" > "$MIRROR_ROOT/mirror-status.txt"
