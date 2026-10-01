@@ -104,7 +104,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "1 - (arch_mirror_disk_usage_bytes{type=\"free\"} / arch_mirror_disk_usage_bytes{type=\"total\"})",
+          "expr": "1 - (arch_mirror_disk_usage_bytes{type=\"free\"} / ignoring(type) arch_mirror_disk_usage_bytes{type=\"total\"})",
           "legendFormat": "__auto"
         }
       ]

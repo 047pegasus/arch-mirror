@@ -1,0 +1,21 @@
+# Log rotation for the Arch mirror sync log.
+# Deploy to: /etc/logrotate.d/arch-mirror-sync  (sudo cp logrotate/arch-mirror-sync ...)
+# Applied by the daily cron job (Ubuntu runs /etc/cron.daily/logrotate).
+#
+# copytruncate is REQUIRED (not optional): the exporter container holds a
+# bind-mount to this exact inode (/var/log/arch-mirror-sync.log:ro). A normal
+# rotate (rename + create) would leave the container tailing a detached,
+# ever-growing deleted file while the host writes a fresh one neither the
+# exporter nor Loki would read consistently. copytruncate keeps the inode.
+# Trade-off: a sub-second window per rotation where a concurrently-written
+# line may be lost — irrelevant for a 4-hourly batch log.
+/var/log/arch-mirror-sync.log {
+    weekly
+    rotate 8
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    su root root
+}
